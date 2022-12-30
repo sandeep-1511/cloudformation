@@ -1,0 +1,56 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Hello') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/vm-docker-cicd']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/sandeep-1511/lms-public.git']]])
+            }
+        }
+        stage('create network') {
+            steps { 
+                script {
+                    sh 'docker network rm lmsnetwork'
+                    sh 'docker network create lmsnetwork' 
+                }
+            } 
+        }
+        stage('docker build') {
+            steps { 
+                script {
+                   // sh 'cd api && docker image rm sandeeppunna/lms-public-api'
+                    sh 'cd api && docker build --tag sandeeppunna/lms-public-api:latest .'
+                }
+            }   
+        }
+        stage('docker login') {
+            steps { 
+                script {
+                    withCredentials([string(credentialsId: 'sandeeppunna', variable: 'dockerhub')]) {
+                    sh 'docker login -u sandeeppunna -p ${dockerhub}'    
+    
+}
+   
+                    sh 'docker push sandeeppunna/lms-public-api:latest'
+                    sh 'docker image rmi -f sandeeppunna/lms-public-api:latest'
+                }    
+            }
+        }
+        stage('container') {
+            steps { 
+                script {
+                    sh 'docker container rm --force lmspgdb'
+                    sh 'docker run -d -p 5432:5432 --network lmsnetwork -e POSTGRES_PASSWORD=password --name lmspgdb postgres'
+                }
+            }
+        }
+        stage('docker container') {
+            steps { 
+                script {
+                    sh 'docker container rm --force contact'
+                    sh ' docker run -d -p  8080:8080 --network lmsnetwork -e DATABASE_URL=postgresql://postgres:password@lmspgdb:5432/postgres -e PORT=8080 -e MODE=local --name contact sandeeppunna/lms-public-api:latest'
+                }
+            }
+        }
+    }
+}  
