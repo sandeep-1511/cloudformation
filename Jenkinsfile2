@@ -1,0 +1,41 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Hello') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/vm-docker-cicd']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/sandeep-1511/lms-public.git']]])
+            }
+        }
+        stage('docker build') {
+            steps { 
+                script {
+                    sh ' cd webapp && docker build -t sandeeppunna/kumar .'
+                }
+            }   
+        }
+        stage('docker login') {
+            steps { 
+                script {
+                    withCredentials([string(credentialsId: 'dockerhub', variable: 'dockerhubid')]) {
+                    sh 'docker login -u sandeeppunna -p ${dockerhubid}'    
+    
+}
+   
+                    sh 'docker push sandeeppunna/kumar'
+                    sh 'docker image rmi -f sandeeppunna/kumar'
+                }    
+            }
+        }
+        stage('docker deploy') {
+            steps { 
+                script {
+                    echo 'Deploying....'
+                    sh "cd webapp && kubectl apply -f deployment.yml"
+                    sh "cd webapp && kubectl apply -f service.yml"
+                    sh "kubectl rollout restart deployment/calc-deployment"
+                }
+            }                    
+        }
+    }
+}
