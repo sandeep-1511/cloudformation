@@ -1,6 +1,417 @@
----
-Resources:
-  MyS3Bucket:
-    Type: "AWS::S3::Bucket"
-    Properties:
-      AccessControl: PublicRead
+Requirements:
+
+ 
+
+Azure cloud machine with at least 2 cores and 8 GB RAM.
+
+Ports 1433, 8111, 433, and 80 are opened on the machine.
+
+ 
+
+Open azureVM.png
+
+Step 1: Install Docker
+Step 2: Install SQL Server
+Step 3: Download TeamCity
+Step 4: Database Restore
+Step 5: NGINX Configuration
+Step 6: Enable HTTPS with Certbot
+Step 7: TeamCity Agent Configuration
+Step 8: Install MongoDB
+Step 1: Install Docker
+ 
+
+Follow the official Docker installation guide for Ubuntu from the link: Docker Installation Guide.
+
+After installing Docker, execute the following command to add your user to the `docker` group:
+
+
+
+sudo usermod -aG docker azureuser
+Step 2: Install SQL Server
+ 
+
+Pull the latest SQL Server Docker image using this command:
+
+
+
+docker pull mcr.microsoft.com/mssql/server:2019-latest
+Run the SQL Server container with the following command:
+
+
+
+sudo docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=W1nds@ft1234" \
+   -p 1434:1433 --name teamcity-sql-server \
+   -d mcr.microsoft.com/mssql/server:2019-latest
+docker update --restart=always teamcity-sql-server
+Step 3: Download TeamCity
+ 
+
+Pull the latest TeamCity Server Docker image using this command:
+
+
+
+
+docker pull jetbrains/teamcity-server
+Create folders for TeamCity data and logs with the following commands:
+
+
+
+
+mkdir TeamCity
+cd TeamCity
+mkdir data
+mkdir logs
+cd ..
+Run the TeamCity Server container with the following command:
+
+
+
+
+docker run --name teamcity-server-instance  \
+    -v /home/azureuser/TeamCity/data:/data/teamcity_server/datadir \
+    -v /home/azureuser/TeamCity/logs:/opt/teamcity/logs  \
+    -p 8111:8111 \
+    jetbrains/teamcity-server
+docker update --restart=always teamcity-server-instance     
+Access TeamCity Server by visiting your machine's IP address and port 8111. For example, in my case: http://20.223.224.22:8111
+
+Step 4: Database Restore
+Connect to your SQL Server at `20.223.224.22:1433` using your favorite database tool (SSMS, Datagrip, shell) with the following credentials:
+Username: sa
+Password: W1nds@ft1234
+
+Create a database called "TeamCityDB."
+
+Choose whether to restore a previous TeamCity Server instance or start a new one. Apply these changes to the "TeamCityDB." Restoring a database might take some time, so wait for the restore to finish. Once finished, click "Proceed." The UI should display that TeamCity is starting. Wait for TeamCity to initialize its components.
+
+Step 5: NGINX Configuration
+
+
+Install NGINX and start it using the following commands:
+
+
+
+sudo apt update
+sudo apt install nginx
+sudo systemctl start nginx
+Create a new NGINX configuration file for TeamCity with the following command:
+
+
+
+sudo nano /etc/nginx/sites-available/teamcity
+Paste the following configuration into the file and save it:
+
+
+
+server {
+    listen 80;
+    server_name 20.223.224.22; #Use the IP Address here
+    location / {
+        proxy_pass http://localhost:8111/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSocket proxy settings
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+server {
+    listen 80;
+    server_name teamcity.windsoft.ro; #Use the DOMAIN here
+    location / {
+        proxy_pass http://localhost:8111/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSocket proxy settings
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+Create a symbolic for your new config file:
+
+
+
+sudo ln -s /etc/nginx/sites-available/your_config_file /etc/nginx/sites-enabled/
+Test Nginx configuration: Before you restart Nginx, it's a good idea to test the configuration for syntax errors to ensure everything is set up correctly.
+
+
+
+sudo nginx -t
+Reload NGINX with the new configuration using the following command:
+
+
+
+sudo systemctl reload nginx
+Access TeamCity through both websites, but make sure to use "http://" before the domain or IP in your browser.
+
+Step 6: Enable HTTPS with Certbot
+Install Certbot and Python 3 Certbot for NGINX using the following commands:
+
+
+
+sudo apt update
+sudo apt install certbot
+sudo apt install python3-certbot-nginx
+Run Certbot to obtain a certificate for your TeamCity domain name. Replace "teamcity.windsoft.ro" with your domain:
+
+
+
+sudo certbot certonly --nginx -d teamcity.windsoft.ro
+Update the NGINX configuration file for TeamCity with the HTTPS redirect using the following command:
+
+
+
+sudo nano /etc/nginx/sites-available/teamcity
+Delete all the text in that file and add this one instead, then save.
+
+
+
+server {
+    listen 80;
+    server_name 20.223.224.22; #Use the IP Address here
+    # Redirect to HTTPS with the domain name
+    return 301 https://teamcity.windsoft.ro$request_uri;
+}
+server {
+    listen 80;
+    server_name teamcity.windsoft.ro; #Use the DOMAIN here
+    # Redirect to HTTPS
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name teamcity.windsoft.ro;
+    ssl_certificate /etc/letsencrypt/live/teamcity.windsoft.ro/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/teamcity.windsoft.ro/privkey.pem; # managed by Certbot
+    location / {
+        proxy_pass http://localhost:8111/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSocket proxy settings
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+Step 7: TeamCity Agent Configuration
+Create a new directory for the TeamCity Agent:
+
+
+
+
+mkdir BuildAgent
+Create a Dockerfile and add the necessary configuration for the TeamCity Agent. You can refer to the official Jetbrains lib on GitHub:
+
+https://github.com/JetBrains/teamcity-docker-images/blob/master/context/generated/linux/Agent/Ubuntu/20.04/Dockerfile  
+https://github.com/JetBrains/teamcity-docker-images/blob/master/context/run-docker.sh  
+Run this command:
+
+
+
+sudo nano Dockerfile
+
+Paste the following text into the Dockerfile and save it.
+
+
+
+# Default arguments
+ARG containerdIoLinuxComponentVersion='1.4.12-1'
+ARG dockerComposeLinuxComponentVersion='1.28.5'
+ARG dockerLinuxComponentVersion='5:20.10.12~3-0~ubuntu'
+ARG dotnetLibs='libc6 libgcc1 libgssapi-krb5-2 libicu66 libssl1.1 libstdc++6 zlib1g'
+ARG dotnetLinuxComponent_6='https://dotnetcli.blob.core.windows.net/dotnet/Sdk/6.0.100/dotnet-sdk-6.0.100-linux-x64.tar.gz'
+ARG dotnetLinuxComponent_7='https://dotnetcli.blob.core.windows.net/dotnet/Sdk/7.0.306/dotnet-sdk-7.0.306-linux-x64.tar.gz'
+ARG dotnetLinuxComponent_31='https://dotnetcli.azureedge.net/dotnet/Runtime/3.1.21/dotnet-runtime-3.1.21-linux-x64.tar.gz'
+ARG dotnetLinuxComponent_50='https://dotnetcli.azureedge.net/dotnet/Runtime/5.0.12/dotnet-runtime-5.0.12-linux-x64.tar.gz'
+ARG dotnetLinuxComponentSHA512='cb0d174a79d6294c302261b645dba6a479da8f7cf6c1fe15ae6998bc09c5e0baec810822f9e0104e84b0efd51fdc0333306cb2a0a6fcdbaf515a8ad8cf1af25b'
+ARG dotnetLinuxComponentSHA512_31='cc4b2fef46e94df88bf0fc11cb15439e79bd48da524561dffde80d3cd6db218133468ad2f6785803cf0c13f000d95ff71eb258cec76dd8eb809676ec1cb38fac'
+ARG dotnetLinuxComponentSHA512_50='32b5f86db3b1d4c21e3cf616d22f0e4a7374385dac0cf03cdebf3520dcf846460d9677ec1829a180920740a0237d64f6eaa2421d036a67f4fe9fb15d4f6b1db9'
+ARG gitLFSLinuxComponentVersion='2.9.2-1'
+ARG gitLinuxComponentVersion='1:2.41.0-0ppa1~ubuntu20.04.1'
+ARG p4Version='2022.2-2468771'
+ARG repo='https://hub.docker.com/r/jetbrains/'
+ARG teamcityMinimalAgentImage='teamcity-minimal-agent:EAP-linux'
+# The list of required arguments
+# ARG dotnetLinuxComponent_6
+# ARG dotnetLinuxComponentSHA512
+# ARG dotnetLinuxComponent_31
+# ARG dotnetLinuxComponentSHA512_31
+# ARG dotnetLinuxComponent_50
+# ARG dotnetLinuxComponentSHA512_50
+# ARG teamcityMinimalAgentImage
+# ARG dotnetLibs
+# ARG gitLinuxComponentVersion
+# ARG gitLFSLinuxComponentVersion
+# ARG dockerComposeLinuxComponentVersion
+# ARG dockerLinuxComponentVersion
+FROM jetbrains/teamcity-minimal-agent
+USER root
+COPY run-docker.sh /services/run-docker.sh
+ARG dotnetCoreLinuxComponentVersion
+# Opt out of the telemetry feature
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=true \
+    # Disable first time experience
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=true \
+    # Configure Kestrel web server to bind to port 80 when present
+    ASPNETCORE_URLS=http://+:80 \
+    # Enable detection of running in a container
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    # Enable correct mode for dotnet watch (only mode supported in a container)
+    DOTNET_USE_POLLING_FILE_WATCHER=true \
+    # Skip extraction of XML docs - generally not useful within an image/container - helps performance
+    NUGET_XMLDOC_MODE=skip \
+    GIT_SSH_VARIANT=ssh \
+    DOTNET_SDK_VERSION=${dotnetCoreLinuxComponentVersion}
+ARG dotnetLinuxComponent_6
+ARG dotnetLinuxComponent_7
+ARG dotnetLinuxComponentSHA512
+ARG dotnetLinuxComponent_31
+ARG dotnetLinuxComponentSHA512_31
+ARG dotnetLinuxComponent_50
+ARG dotnetLinuxComponentSHA512_50
+ARG dotnetLibs
+ARG gitLinuxComponentVersion
+ARG gitLFSLinuxComponentVersion
+ARG dockerComposeLinuxComponentVersion
+ARG dockerLinuxComponentVersion
+ARG containerdIoLinuxComponentVersion
+ARG p4Version
+RUN apt-get update && \
+    apt-get install -y mercurial apt-transport-https software-properties-common
+# Install Git and Git LFS
+RUN add-apt-repository ppa:git-core/ppa -y && \
+    apt-get install -y git=${gitLinuxComponentVersion} git-lfs=${gitLFSLinuxComponentVersion} && \
+    git lfs install --system
+# Install Perforce Helix CLI
+RUN apt-key adv --fetch-keys https://package.perforce.com/perforce.pubkey && \
+    (. /etc/os-release && \
+      echo "deb http://package.perforce.com/apt/$ID $VERSION_CODENAME release" > \
+      /etc/apt/sources.list.d/perforce.list ) && \
+    apt-get update && \
+    (. /etc/os-release && apt-get install -y helix-cli-base="${p4Version}~$VERSION_CODENAME" helix-cli="${p4Version}~$VERSION_CODENAME" )
+# Install Docker and Docker Compose
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - && \
+    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" && \
+    apt-cache policy docker-ce && \
+    apt-get update && \
+    apt-get install -y  docker-ce=${dockerLinuxComponentVersion}-$(lsb_release -cs) \
+                        docker-ce-cli=${dockerLinuxComponentVersion}-$(lsb_release -cs) \
+                        containerd.io:amd64=${containerdIoLinuxComponentVersion} \
+                        systemd && \
+    systemctl disable docker && \
+    sed -i -e 's/\r$//' /services/run-docker.sh && \
+    curl -SL "https://github.com/docker/compose/releases/download/${dockerComposeLinuxComponentVersion}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
+# Install .NET components
+RUN apt-get install -y --no-install-recommends ${dotnetLibs} && \
+    mkdir -p /usr/share/dotnet && \
+    curl -SL ${dotnetLinuxComponent_31} --output /tmp/dotnet.tar.gz && \
+    echo "${dotnetLinuxComponentSHA512_31} */tmp/dotnet.tar.gz" | sha512sum -c -; \
+    tar -zxf /tmp/dotnet.tar.gz -C /usr/share/dotnet && \
+    rm /tmp/dotnet.tar.gz && \
+    find /usr/share/dotnet -name "*.lzma" -type f -delete
+RUN curl -SL ${dotnetLinuxComponent_50} --output /tmp/dotnet.tar.gz && \
+    echo "${dotnetLinuxComponentSHA512_50} */tmp/dotnet.tar.gz" | sha512sum -c -; \
+    tar -zxf /tmp/dotnet.tar.gz -C /usr/share/dotnet && \
+    rm /tmp/dotnet.tar.gz && \
+    find /usr/share/dotnet -name "*.lzma" -type f -delete
+RUN curl -SL ${dotnetLinuxComponent_6} --output /tmp/dotnet.tar.gz && \
+    echo "${dotnetLinuxComponentSHA512} */tmp/dotnet.tar.gz" | sha512sum -c -; \
+    tar -zxf /tmp/dotnet.tar.gz -C /usr/share/dotnet && \
+    rm /tmp/dotnet.tar.gz && \
+    find /usr/share/dotnet -name "*.lzma" -type f -delete
+RUN curl -SL ${dotnetLinuxComponent_7} --output /tmp/dotnet.tar.gz && \
+    echo "${dotnetLinuxComponentSHA512} */tmp/dotnet.tar.gz" | sha512sum -c -; \
+    tar -zxf /tmp/dotnet.tar.gz -C /usr/share/dotnet && \
+    rm /tmp/dotnet.tar.gz && \
+    find /usr/share/dotnet -name "*.lzma" -type f -delete && \
+    ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
+# Install curl, NuGet CLI, and Mono
+RUN apt-get update && apt-get install -y curl nuget gnupg ca-certificates && \
+    curl -sSL https://download.mono-project.com/repo/xamarin.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/xamarin.gpg && \
+    echo "deb https://download.mono-project.com/repo/debian stable-focal main" | tee /etc/apt/sources.list.d/mono-official-stable.list && \
+    apt-get update && apt-get install -y mono-complete
+# Set permissions and user
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    chown -R buildagent:buildagent /services && \
+    usermod -aG docker buildagent
+# A better fix for TW-52939 Dockerfile build fails because of aufs
+VOLUME /var/lib/docker
+USER buildagent
+This is the basic TeamCity Build Agent installation but with .net sdk 7.0.306 and 6 and added support for Nuget and Mono/NET Framework. All the steps have been broken into smaller more debug-able steps. 
+
+Create the `run-docker.sh` file:
+
+
+
+sudo nano run-docker.sh
+Paste these contents to the file and save it.
+
+
+
+#!/bin/bash
+if [ "$DOCKER_IN_DOCKER" = "start" ] ; then
+ # Do cover the case when the container is restarted:
+ sudo rm /var/run/docker.pid 2>/dev/null
+ sudo rm -rf /var/run/docker/containerd 2>/dev/null
+ sudo service docker start
+ echo "Docker daemon started"
+ service docker status
+fi
+Build the TeamCity Agent Docker image with the following command:
+
+
+
+docker build -t teamcity-agent .
+Run the TeamCity Agent container with the following command:
+
+
+
+docker run --name teamcity-agent \
+    -e SERVER_URL="https://teamcity.windsoft.ro"  \
+    -u 0 \
+    -v /home/azureuser/BuildAgent:/data/teamcity_agent/conf \
+    -v /var/run/docker.sock:/var/run/docker.sock  \
+    -v /opt/buildagent/work:/opt/buildagent/work \
+    -v /opt/buildagent/temp:/opt/buildagent/temp \
+    -v /opt/buildagent/tools:/opt/buildagent/tools \
+    -v /opt/buildagent/plugins:/opt/buildagent/plugins \
+    -v /opt/buildagent/system:/opt/buildagent/system \
+    teamcity-agent
+Enable automatic restarts for the TeamCity Agent container with the following command:
+
+
+
+docker update --restart always teamcity-agent
+docker start teamcity-agent
+Now ssh into your TeamCity agent docker container and login to WindSoft Container Registry (this step is very important otherwise your BuildAgent will not able to push these images to our container registry, make sure to replace <password> with the container password):
+
+
+
+
+docker exec -it teamcity-agent /bin/bash
+docker login windsoft.azurecr.io -u WindSoft -p <password>
+After executing this step, you can exit this screen by typing `exit` and pressing enter.
+
+Step 8: Install MongoDB
+ 
+
+Please follow the instructions from this link to install MongoDB and SqlServer for the Test instances, but do not follow the last step with Azure CLI: Environment Setup 
+
