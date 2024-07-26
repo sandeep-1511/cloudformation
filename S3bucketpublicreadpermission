@@ -410,6 +410,8 @@ docker exec -it teamcity-agent /bin/bash
 docker login windsoft.azurecr.io -u WindSoft -p <password>
 After executing this step, you can exit this screen by typing `exit` and pressing enter.
 
+we need check in buildagent in properties file we need check url 
+
 Step 8: Install MongoDB
  
 
