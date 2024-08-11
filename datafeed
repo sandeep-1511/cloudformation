@@ -1,0 +1,7 @@
+TO OPEN THE JOB 
+
+curl -X POST "https://21a5fa09468f456f8bbec02bf7fdac5e.us-central1.gcp.cloud.es.io:443/_ml/anomaly_detectors/mail-test-10/_open" -H "Authorization: ApiKey xxxxxxxUJ0Vm5kS0Q1dTdIxxxWlJ5NkdxxxxxN3TnBjOFBRdw==" -H "Content-Type: application/json"
+
+DATAFEED TO START
+
+curl -X POST "https://21a5fa09468f456f8bbec02bf7fdac5e.us-central1.gcp.cloud.es.io:443/_ml/datafeeds/datafeed-mail-test-10/_start" -H "Authorization: ApiKey UkNWWk4xxxxxxxxxxxxxxxxxN3TnBjOFBRdw==" -H "Content-Type: application/json"
