@@ -1,0 +1,25 @@
+mkdir /home/ftpusers/bob2
+ 
+chown -R ftpuser:ftpgroup /home/ftpusers
+ 
+pure-pw useradd bob2 -u ftpuser -g ftpgroup -d /home/ftpusers/bob2
+ 
+pure-pw mkdb
+ 
+ 
+FTP HOST: prodftp.windsoft.ro 
+User: bob  bob@123
+User: bob2  bob2@123
+
+
+
+sudo mkdir -p /mnt/ftpdata/pureftpuser1
+sudo chown -R ftpuser:ftpgroup /mnt/ftpdata
+sudo pure-pw useradd pureftpuser1 -u ftpuser -g ftpgroup -d /mnt/ftpdata/pureftpuser1
+sudo pure-pw mkdb
+sudo systemctl restart pure-ftpd
+
+
+
+
+
