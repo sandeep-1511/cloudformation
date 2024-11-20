@@ -31,3 +31,4 @@ setfacl -d -m g::r-x /mnt/ftpdata/guri10
 setfacl -d -m o::r-x /mnt/ftpdata/guri10
 
 
+https://www.youtube.com/watch?v=hz5dZGib_xI&t=219s&ab_channel=RedBlueLabs
