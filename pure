@@ -21,5 +21,13 @@ sudo systemctl restart pure-ftpd
 
 
 
+mkdir -p /mnt/ftpdata/guri10
+chown -R ftpuser:ftpgroup /mnt/ftpdata/guri10
+pure-pw useradd guri10 -u ftpuser -g ftpgroup -d /mnt/ftpdata/guri10
+pure-pw mkdb
+chmod -R 570 /mnt/ftpdata/guri10
+setfacl -d -m u::rwx /mnt/ftpdata/guri10
+setfacl -d -m g::r-x /mnt/ftpdata/guri10
+setfacl -d -m o::r-x /mnt/ftpdata/guri10
 
 
